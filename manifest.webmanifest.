@@ -1,0 +1,18 @@
+{
+  "name": "Space Trader \u2014 Space Markets Companion",
+  "short_name": "Space Trader",
+  "description": "A personal trading workspace for Space Markets MT5 traders.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#080d18",
+  "theme_color": "#080d18",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
