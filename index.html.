@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#080d18">
+  <meta name="description" content="Space Trader — a personal trading workspace for Space Markets MT5 traders.">
+  <title>Space Trader</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">✦</div>
+        <div><div class="brand-name">SPACE <span>TRADER</span></div><div class="brand-sub">PERSONAL MARKET TERMINAL</div></div>
+      </div>
+      <div class="top-actions">
+        <span class="mode-pill"><i></i> SIGNALS ONLY</span>
+        <button class="icon-btn" id="backupBtn" aria-label="Export backup" title="Export backup">⇩</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="page active" id="page-dashboard">
+        <div class="welcome-row">
+          <div><div class="eyebrow" id="todayLabel">TRADING DESK</div><h1>Market overview</h1><p class="muted">Your plan. Your risk. Your decisions.</p></div>
+          <div class="capital-chip"><span>PLANNED CAPITAL</span><strong id="capitalDisplay">R500.00</strong></div>
+        </div>
+        <div class="feed-panel panel"><div class="row-between"><div><span class="eyebrow">PUBLIC MARKET DATA</span><h3 id="feedTitle">Connecting market feed…</h3></div><span class="tag amber" id="feedBadge">CONNECTING</span></div><p class="muted" id="feedMessage">Connecting to an independent public MT5 market-data source. This is not your Space Markets account feed.</p><div class="feed-meta" id="feedMeta">Provider: biquote · No API key required</div><button class="secondary-btn full" id="feedReconnect" type="button">Reconnect market feed</button></div>
+        <div class="section-heading"><div><span class="eyebrow">WATCHLIST</span><h2>Markets</h2></div><button class="text-btn" data-go="watchlist">Manage ↗</button></div>
+        <div class="market-grid" id="marketCards"></div>
+        <div class="section-heading"><div><span class="eyebrow">YOUR PROCESS</span><h2>Pre-trade checklist</h2></div><span class="small-tag">5 checks</span></div>
+        <div class="panel checklist" id="checklist">
+          <label><input type="checkbox"> H4 direction is clear</label>
+          <label><input type="checkbox"> H1 structure supports the bias</label>
+          <label><input type="checkbox"> M30 confirmation is present</label>
+          <label><input type="checkbox"> M15 entry trigger is confirmed</label>
+          <label><input type="checkbox"> Spread, news and risk are acceptable</label>
+          <div class="checklist-foot">If any required check fails, stand aside. A missed trade is better than a forced trade.</div>
+        </div>
+        <div class="section-heading"><div><span class="eyebrow">RISK CONTROL</span><h2>Account guardrails</h2></div><button class="text-btn" data-go="risk">Calculator ↗</button></div>
+        <div class="stat-grid">
+          <div class="panel stat"><span>Risk / trade</span><strong id="riskSummary">R5.00</strong><small>1.0% default</small></div>
+          <div class="panel stat"><span>Daily loss limit</span><strong id="dailyLimitSummary">R10.00</strong><small>2% of planned capital</small></div>
+        </div>
+        <div class="panel compact-panel"><div class="row-between"><strong>Trading rule</strong><span class="tag green">Capital first</span></div><p class="muted">Default risk is 1% per trade. Stop trading for the day after the daily loss limit or two consecutive losses. These are planning controls, not broker-enforced limits.</p></div>
+      </section>
+
+      <section class="page" id="page-watchlist">
+        <div class="page-head"><span class="eyebrow">MARKET MONITOR</span><h1>Watchlist</h1><p class="muted">Independent public quotes update automatically when the provider is available. Manual quotes remain available.</p></div>
+        <div class="toolbar"><select id="quoteSymbol"><option>XAUUSD</option><option>NAS100</option><option>US30</option><option>GER30</option></select><button class="primary-btn" id="editQuoteBtn">Update quote</button></div>
+        <div id="watchRows" class="watch-list"></div>
+        <div class="panel"><h3>External chart references</h3><p class="muted">These are independent chart references, not guaranteed to match Space Markets CFD prices or symbol suffixes.</p><div class="link-list">
+          <a target="_blank" rel="noopener" href="https://www.tradingview.com/chart/?symbol=OANDA%3AXAUUSD">Gold chart ↗</a>
+          <a target="_blank" rel="noopener" href="https://www.tradingview.com/chart/?symbol=NASDAQ%3ANDX">Nasdaq 100 chart ↗</a>
+          <a target="_blank" rel="noopener" href="https://www.tradingview.com/chart/?symbol=TVC%3ADJI">Dow Jones chart ↗</a>
+          <a target="_blank" rel="noopener" href="https://www.tradingview.com/chart/?symbol=XETR%3ADAX">DAX chart ↗</a>
+        </div></div>
+      </section>
+
+      <section class="page" id="page-signals">
+        <div class="page-head"><span class="eyebrow">SETUP WORKBENCH</span><h1>Signal builder</h1><p class="muted">Create and assess a trade idea. This app does not generate verified AI signals or place orders.</p></div>
+        <form id="signalForm" class="panel form-panel">
+          <div class="form-grid">
+            <label>Instrument<select id="sigSymbol"><option>XAUUSD</option><option>NAS100</option><option>US30</option><option>GER30</option></select></label>
+            <label>Direction<select id="sigSide"><option>BUY</option><option>SELL</option></select></label>
+            <label>Entry price<input id="sigEntry" type="number" step="any" required placeholder="e.g. 2350.50"></label>
+            <label>Stop loss<input id="sigSL" type="number" step="any" required placeholder="Stop price"></label>
+            <label>Take profit 1<input id="sigTP1" type="number" step="any" required placeholder="Target 1"></label>
+            <label>Timeframe<select id="sigTF"><option>M15</option><option>M30</option><option>H1</option><option>H4</option></select></label>
+          </div>
+          <label>Setup rationale<textarea id="sigReason" rows="3" placeholder="e.g. H4 bullish; H1 BOS; M30 retest; M15 bullish rejection..."></textarea></label>
+          <button class="primary-btn full" type="submit">Calculate & save setup</button>
+        </form>
+        <div id="signalResult" class="panel result-panel hidden"></div>
+        <div class="section-heading"><div><span class="eyebrow">SAVED IDEAS</span><h2>Signal log</h2></div><span class="small-tag" id="signalCount">0 setups</span></div>
+        <div id="signalList" class="stack-list"></div>
+      </section>
+
+      <section class="page" id="page-risk">
+        <div class="page-head"><span class="eyebrow">CAPITAL PROTECTION</span><h1>Risk calculator</h1><p class="muted">Use your broker's exact contract specifications. Never guess tick values or lot sizes.</p></div>
+        <div class="panel form-panel">
+          <div class="field-block"><label>Account capital (ZAR)<input id="capitalInput" type="number" min="1" step="any" value="500"></label></div>
+          <div class="field-block"><div class="label-row"><label for="riskPct">Risk per trade</label><strong id="riskPctLabel">1.0%</strong></div><input id="riskPct" type="range" min="0.5" max="1" step="0.5" value="1"><div class="range-labels"><span>0.5%</span><span>1.0%</span></div></div>
+          <div class="form-grid">
+            <label>Stop distance (points)<input id="stopPoints" type="number" min="0.0001" step="any" value="30"></label>
+            <label>Value per point per 1.00 lot (ZAR)<input id="pointValue" type="number" min="0" step="any" placeholder="Enter verified value"></label>
+            <label>Spread cost per 1.00 lot (ZAR)<input id="spreadCost" type="number" min="0" step="any" value="0"></label>
+            <label>Round-turn commission per 1.00 lot (ZAR)<input id="commission" type="number" min="0" step="any" value="0"></label>
+            <label>Broker minimum lot<input id="minLot" type="number" min="0.000001" step="any" value="0.01"></label>
+            <label>Lot step<input id="lotStep" type="number" min="0.000001" step="any" value="0.01"></label>
+          </div>
+          <div class="result-box"><span>Maximum planned loss</span><strong id="riskCash">R5.00</strong><small id="riskPctCaption">1.0% of R500</small></div>
+          <div class="result-box secondary-result"><span>Estimated maximum lot size</span><strong id="lotResult">Not calculated</strong><small id="lotExplain">Enter verified point value and costs to calculate.</small></div>
+          <p class="tiny muted">Formula: risk cash ÷ [(stop points × point value) + spread cost + round-turn commission]. Result is rounded down to the broker's lot step. Margin, stop slippage and currency conversion can further reduce a safe size.</p>
+        </div>
+        <div class="panel compact-panel"><h3>Daily protection</h3><div class="form-grid"><label>Daily loss limit (%)<input id="dailyPct" type="number" min="0.5" max="5" step="0.5" value="2"></label><label>Consecutive losses limit<input id="lossStreak" type="number" min="1" max="10" value="2"></label></div><p class="muted" id="dailyRiskText">Daily loss limit: R10.00</p></div>
+      </section>
+
+      <section class="page" id="page-journal">
+        <div class="page-head"><span class="eyebrow">PERFORMANCE REVIEW</span><h1>Trade journal</h1><p class="muted">Records are saved on this device in this browser.</p></div>
+        <div class="stat-grid">
+          <div class="panel stat"><span>Trades logged</span><strong id="jCount">0</strong><small>All recorded trades</small></div>
+          <div class="panel stat"><span>Net P/L</span><strong id="jNet">R0.00</strong><small>After costs if entered net</small></div>
+          <div class="panel stat"><span>Win rate</span><strong id="jWin">0%</strong><small>Winning trades / closed trades</small></div>
+          <div class="panel stat"><span>Profit factor</span><strong id="jPF">—</strong><small>Gross wins ÷ gross losses</small></div>
+        </div>
+        <form id="tradeForm" class="panel form-panel">
+          <h3>Record a completed trade</h3>
+          <div class="form-grid">
+            <label>Instrument<select id="tradeSymbol"><option>XAUUSD</option><option>NAS100</option><option>US30</option><option>GER30</option></select></label>
+            <label>Direction<select id="tradeSide"><option>BUY</option><option>SELL</option></select></label>
+            <label>Entry price<input id="tradeEntry" type="number" step="any" required></label>
+            <label>Exit price<input id="tradeExit" type="number" step="any" required></label>
+            <label>Net P/L (ZAR)<input id="tradePL" type="number" step="any" required placeholder="e.g. 25 or -10"></label>
+            <label>Trade date<input id="tradeDate" type="date" required></label>
+          </div>
+          <label>Notes<textarea id="tradeNotes" rows="2" placeholder="What worked? What would you change?"></textarea></label>
+          <button class="primary-btn full" type="submit">Save trade</button>
+        </form>
+        <div class="section-heading"><div><span class="eyebrow">HISTORY</span><h2>Recent trades</h2></div><button class="text-btn" id="csvBtn">Export CSV ↓</button></div>
+        <div id="tradeList" class="stack-list"></div>
+      </section>
+
+      <section class="page" id="page-settings">
+        <div class="page-head"><span class="eyebrow">APP CONFIGURATION</span><h1>Settings</h1><p class="muted">Set up your Space Markets account details without storing passwords.</p></div>
+        <div class="panel form-panel">
+          <label>Account type<select id="accountType"><option>Standard</option><option>Pro</option><option>Sniper</option><option>Ultra Micro</option><option>Space 100</option><option>Swap Free / Islamic ECN</option><option>Synthetics</option><option>Other / Not sure</option></select></label>
+          <label>MT5 server name<input id="serverName" placeholder="Enter exact server shown in MT5"></label>
+          <label>MT5 symbol mapping<textarea id="symbolMap" rows="4" placeholder="Example: XAUUSD = XAUUSD.a&#10;NAS100 = USTEC&#10;US30 = US30.cash&#10;GER30 = GER40"></textarea></label>
+          <button class="primary-btn full" id="saveSettings" type="button">Save settings</button>
+        </div>
+        <div class="panel compact-panel"><h3>Market data connection</h3><div class="row-between"><span class="muted">Independent public feed</span><span class="tag amber" id="settingsFeedBadge">Connecting</span></div><p class="muted" id="settingsFeedText">biquote public data feed. Quotes are independent reference prices, not Space Markets account quotes. They may differ from your broker spread, CFD symbol and execution price.</p><div class="feed-meta" id="settingsFeedMeta">Waiting for provider response…</div><button class="secondary-btn full" id="settingsReconnect" type="button">Reconnect feed</button></div>
+        <div class="panel compact-panel"><h3>Data & privacy</h3><p class="muted">Journal, settings, manual quotes and signal ideas stay in this browser's local storage. Export a backup regularly. Clearing browser data may erase records. Do not enter broker passwords, API secrets or banking credentials here.</p><button class="danger-btn full" id="clearData">Delete all local app data</button></div>
+        <div class="panel compact-panel"><h3>Official references</h3><div class="link-list"><a href="https://www.spacemarkets.io/" target="_blank" rel="noopener">Space Markets official website ↗</a><a href="https://www.metatrader5.com/en/terminal/help/trading/market_watch" target="_blank" rel="noopener">MetaTrader 5 Market Watch help ↗</a><a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView ↗</a></div></div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="Main navigation">
+      <button class="nav-item active" data-page="dashboard"><b>⌂</b><span>Home</span></button>
+      <button class="nav-item" data-page="watchlist"><b>◈</b><span>Markets</span></button>
+      <button class="nav-item" data-page="signals"><b>⌁</b><span>Signals</span></button>
+      <button class="nav-item" data-page="risk"><b>⊙</b><span>Risk</span></button>
+      <button class="nav-item" data-page="journal"><b>▤</b><span>Journal</span></button>
+      <button class="nav-item" data-page="settings"><b>⚙</b><span>More</span></button>
+    </nav>
+  </div>
+
+  <dialog id="quoteDialog">
+    <form method="dialog" id="quoteForm" class="dialog-card">
+      <div class="row-between"><h2>Update market quote</h2><button class="icon-btn" value="cancel" aria-label="Close">×</button></div>
+      <label>Instrument<select id="qSymbol"><option>XAUUSD</option><option>NAS100</option><option>US30</option><option>GER30</option></select></label>
+      <label>Price<input id="qPrice" type="number" step="any" required placeholder="Enter observed price"></label>
+      <label>Quote source<input id="qSource" required placeholder="e.g. Space Markets MT5"></label>
+      <label>Quote status<select id="qStatus"><option>Live — broker terminal</option><option>Delayed</option><option>Indicative / reference</option><option>Previous close</option><option>Manual — unverified</option></select></label>
+      <label>Observed at<input id="qTime" type="datetime-local" required></label>
+      <button class="primary-btn full" type="submit">Save quote</button>
+      <p class="tiny muted">Only select “Live — broker terminal” when you have just verified the quote inside your broker terminal.</p>
+    </form>
+  </dialog>
+
+  <dialog id="confirmDialog"><form method="dialog" class="dialog-card"><h2>Delete local data?</h2><p class="muted">This removes quotes, signals, journal entries and settings from this browser. Export a backup first.</p><div class="button-row"><button class="secondary-btn" value="cancel">Cancel</button><button class="danger-btn" id="confirmClear" value="ok">Delete everything</button></div></form></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
