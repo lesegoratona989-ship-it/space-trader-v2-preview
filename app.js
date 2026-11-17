@@ -1,5 +1,5 @@
 
-/* SPACE TRADER V2.0
+/* SPACE TRADER V2.1
    Public reference feed: biquote.io
    No API key. No broker login. No order execution.
    Public quotes are NOT Space Markets execution prices.
@@ -7,90 +7,142 @@
 "use strict";
 
 const API = "https://biquote.io/api";
+const STORE = "spaceTraderV2";
+
 const SYMBOLS = ["XAUUSD", "NAS100", "US30", "GER30"];
+
 const FRAMES = [
   { name: "H4", interval: "4h" },
   { name: "H1", interval: "1h" },
   { name: "M30", interval: "30m" },
   { name: "M15", interval: "15m" }
 ];
-const STORE = "spaceTraderV2";
+
 const state = {
   quotes: {},
   candles: {},
   symbols: {},
   trades: [],
   signals: [],
-  settings: {}
+  settings: {},
+  manualQuotes: {}
 };
 
 const $ = id => document.getElementById(id);
-const zar = n => "R" + Number(n || 0).toFixed(2);
-const price = n => Number(n).toLocaleString("en-ZA", {
-  maximumFractionDigits: 5
-});
-const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({
-  "&":"&amp;", "<":"&lt;", ">":"&gt;",
-  '"':"&quot;", "'":"&#39;"
-}[c]));
+
+function zar(value) {
+  return "R" + Number(value || 0).toFixed(2);
+}
+
+function price(value) {
+  const n = Number(value);
+  return Number.isFinite(n)
+    ? n.toLocaleString("en-ZA", { maximumFractionDigits: 5 })
+    : "—";
+}
+
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, char => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[char]));
+}
 
 function toast(message) {
   const el = $("toast");
   if (!el) return;
+
   el.textContent = message;
   el.classList.add("show");
-  setTimeout(() => el.classList.remove("show"), 2500);
+
+  setTimeout(() => {
+    el.classList.remove("show");
+  }, 2500);
 }
+
+/* STORAGE */
 
 function loadSaved() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORE) || "{}");
-    state.trades = saved.trades || [];
-    state.signals = saved.signals || [];
+
+    state.trades = Array.isArray(saved.trades) ? saved.trades : [];
+    state.signals = Array.isArray(saved.signals) ? saved.signals : [];
     state.settings = saved.settings || {};
-  } catch (_) {}
+    state.manualQuotes = saved.manualQuotes || {};
+  } catch (error) {
+    state.trades = [];
+    state.signals = [];
+    state.settings = {};
+    state.manualQuotes = {};
+  }
 }
 
 function save() {
   localStorage.setItem(STORE, JSON.stringify({
     trades: state.trades,
     signals: state.signals,
-    settings: state.settings
+    settings: state.settings,
+    manualQuotes: state.manualQuotes
   }));
 }
+
+/* PUBLIC MARKET DATA */
 
 async function getJSON(url) {
   const response = await fetch(url, { cache: "no-store" });
 
   if (!response.ok) {
-    throw new Error("Market data request failed: HTTP " + response.status);
+    throw new Error("Market data HTTP " + response.status);
   }
 
   return response.json();
 }
+
 async function discoverSymbols() {
-  state.symbols.XAUUSD = "XAUUSD";
-  state.symbols.NAS100 = "USTEC";
-  state.symbols.US30 = "US30";
-  state.symbols.GER30 = "DE30";
+  state.symbols = {
+    XAUUSD: "XAUUSD",
+    NAS100: "USTEC",
+    US30: "US30",
+    GER30: "DE30"
+  };
 }
 
-function quality(q) {
-  if (!q) return ["DATA UNAVAILABLE", "red"];
-  if (q.marketState === "closed") return ["PREVIOUS CLOSE", "amber"];
-  if (q.stale === true) return ["STALE — NO TRADE", "red"];
+function quality(quote) {
+  if (!quote) return ["DATA UNAVAILABLE", "red"];
 
-  const age = Number(q.quoteAgeSeconds);
-  if (!Number.isFinite(age)) return ["AGE UNKNOWN — NO TRADE", "red"];
-  if (age <= 60) return ["LIVE PUBLIC REFERENCE", "green"];
-  if (age <= 300) return ["DELAYED PUBLIC REFERENCE", "amber"];
+  if (quote.marketState === "closed") {
+    return ["PREVIOUS CLOSE", "amber"];
+  }
+
+  if (quote.stale === true) {
+    return ["STALE — NO TRADE", "red"];
+  }
+
+  const age = Number(quote.quoteAgeSeconds);
+
+  if (!Number.isFinite(age)) {
+    return ["AGE UNKNOWN — NO TRADE", "red"];
+  }
+
+  if (age <= 60) {
+    return ["LIVE PUBLIC REFERENCE", "green"];
+  }
+
+  if (age <= 300) {
+    return ["DELAYED PUBLIC REFERENCE", "amber"];
+  }
+
   return ["STALE — NO TRADE", "red"];
 }
 
-
-
 async function getQuote(symbol) {
-  return getJSON(API + "/" + encodeURIComponent(symbol) + "?allowStale=true");
+  return getJSON(
+    API + "/" + encodeURIComponent(symbol) + "?allowStale=true"
+  );
 }
 
 async function getCandles(symbol, frame) {
@@ -104,52 +156,64 @@ async function getCandles(symbol, frame) {
   }
 
   return data.bars
-    .filter(b =>
-      b &&
-      b.isOpen !== true &&
-      [b.open, b.high, b.low, b.close].every(
-        v => Number.isFinite(Number(v))
+    .filter(bar =>
+      bar &&
+      bar.isOpen !== true &&
+      [bar.open, bar.high, bar.low, bar.close].every(
+        value => Number.isFinite(Number(value))
       )
     )
-    .map(b => ({
-      open: Number(b.open),
-      high: Number(b.high),
-      low: Number(b.low),
-      close: Number(b.close),
-      time: Date.parse(b.openTime)
+    .map(bar => ({
+      open: Number(bar.open),
+      high: Number(bar.high),
+      low: Number(bar.low),
+      close: Number(bar.close),
+      time: Date.parse(bar.openTime)
     }))
-    .filter(b => Number.isFinite(b.time))
+    .filter(bar => Number.isFinite(bar.time))
     .sort((a, b) => a.time - b.time);
 }
 
+/* MARKET STRUCTURE */
+
 function analyse(bars) {
   if (!bars || bars.length < 30) {
-    return { bias: "UNAVAILABLE", event: "INSUFFICIENT CANDLES" };
+    return {
+      bias: "UNAVAILABLE",
+      event: "INSUFFICIENT CANDLES"
+    };
   }
 
   const highs = [];
   const lows = [];
 
   for (let i = 2; i < bars.length - 2; i++) {
-    const b = bars[i];
+    const bar = bars[i];
 
     if (
-      b.high > bars[i-1].high &&
-      b.high > bars[i-2].high &&
-      b.high >= bars[i+1].high &&
-      b.high >= bars[i+2].high
-    ) highs.push({ i, value: b.high });
+      bar.high > bars[i - 1].high &&
+      bar.high > bars[i - 2].high &&
+      bar.high >= bars[i + 1].high &&
+      bar.high >= bars[i + 2].high
+    ) {
+      highs.push({ i, value: bar.high });
+    }
 
     if (
-      b.low < bars[i-1].low &&
-      b.low < bars[i-2].low &&
-      b.low <= bars[i+1].low &&
-      b.low <= bars[i+2].low
-    ) lows.push({ i, value: b.low });
+      bar.low < bars[i - 1].low &&
+      bar.low < bars[i - 2].low &&
+      bar.low <= bars[i + 1].low &&
+      bar.low <= bars[i + 2].low
+    ) {
+      lows.push({ i, value: bar.low });
+    }
   }
 
   if (highs.length < 2 || lows.length < 2) {
-    return { bias: "UNAVAILABLE", event: "SWING DATA INSUFFICIENT" };
+    return {
+      bias: "UNAVAILABLE",
+      event: "SWING DATA INSUFFICIENT"
+    };
   }
 
   const h1 = highs[highs.length - 1].value;
@@ -158,36 +222,50 @@ function analyse(bars) {
   const l0 = lows[lows.length - 2].value;
 
   let bias = "RANGE";
+
   if (h1 > h0 && l1 > l0) bias = "BULLISH";
   if (h1 < h0 && l1 < l0) bias = "BEARISH";
 
   const last = bars[bars.length - 1];
   const previous = bars[bars.length - 2];
-  const oldHigh = highs.filter(x => x.i < bars.length - 1).at(-1);
-  const oldLow = lows.filter(x => x.i < bars.length - 1).at(-1);
+
+  const oldHighs = highs.filter(item => item.i < bars.length - 1);
+  const oldLows = lows.filter(item => item.i < bars.length - 1);
+
+  const oldHigh = oldHighs[oldHighs.length - 1];
+  const oldLow = oldLows[oldLows.length - 1];
 
   let event = "NO CONFIRMED BREAK";
 
-  if (oldHigh && last.close > oldHigh.value &&
-      previous.close <= oldHigh.value) {
+  if (
+    oldHigh &&
+    last.close > oldHigh.value &&
+    previous.close <= oldHigh.value
+  ) {
     event = "BULLISH BOS";
-  } else if (oldLow && last.close < oldLow.value &&
-             previous.close >= oldLow.value) {
+  } else if (
+    oldLow &&
+    last.close < oldLow.value &&
+    previous.close >= oldLow.value
+  ) {
     event = "BEARISH BOS";
   }
 
   return { bias, event };
 }
 
+/* MARKET DISPLAY */
+
 function renderMarkets() {
   const cards = $("marketCards");
   const rows = $("watchRows");
 
   const html = SYMBOLS.map(symbol => {
-    const q = state.quotes[symbol];
+    const quote = state.quotes[symbol];
     const supported = !!state.symbols[symbol];
-    const status = quality(q);
-    const mid = q ? Number(q.mid) : NaN;
+    const status = quality(quote);
+    const mid = quote ? Number(quote.mid) : NaN;
+    const manual = state.manualQuotes[symbol];
 
     return `
       <article class="market-card">
@@ -197,19 +275,25 @@ function renderMarkets() {
             ${supported ? status[0] : "UNSUPPORTED"}
           </span>
         </div>
+
         <div class="market-price">
           ${Number.isFinite(mid) ? price(mid) : "—"}
         </div>
+
         <div class="quote-status">
           ${supported
             ? status[0]
-            : "Exact symbol not found. No proxy substituted."}
+            : "Exact symbol unavailable. No proxy substituted."}
         </div>
+
         <div class="feed-meta">
-          Source: ${q ? esc(q.source || "biquote") : "Unavailable"}<br>
-          ${q ? "Timestamp: " + esc(q.timestamp || "Unknown") : ""}
-          ${q ? "<br>Quote age: " +
-            esc(q.quoteAgeSeconds) + " seconds" : ""}
+          Source: ${quote ? esc(quote.source || "biquote") : "Unavailable"}<br>
+          ${quote ? "Timestamp: " + esc(quote.timestamp || "Unknown") : ""}
+          ${quote ? "<br>Quote age: " + esc(quote.quoteAgeSeconds) + " seconds" : ""}
+          ${manual
+            ? "<br>Manual record: " + price(manual.price) +
+              " · " + esc(manual.source)
+            : ""}
         </div>
       </article>`;
   }).join("");
@@ -218,41 +302,52 @@ function renderMarkets() {
   if (rows) rows.innerHTML = html;
 }
 
-function renderAnalysis() {
-  const host = $("signalList");
-  if (!host) return;
+/* SIGNAL SCANNER */
+
+function renderSignals() {
+  const list = $("signalList");
+  if (!list) return;
 
   const analysis = SYMBOLS.map(symbol => {
     const quote = state.quotes[symbol];
     const status = quality(quote);
     const frames = state.candles[symbol] || {};
-    const results = FRAMES.map(f => ({
-      name: f.name,
-      result: frames[f.name] ? analyse(frames[f.name]) : null
-    }));
 
-    const missing = results.filter(
-      x => !x.result || x.result.bias === "UNAVAILABLE"
+    const results = FRAMES.map(frame => {
+      const result = frames[frame.name]
+        ? analyse(frames[frame.name])
+        : null;
+
+      return {
+        name: frame.name,
+        result
+      };
+    });
+
+    const missing = results.some(item =>
+      !item.result || item.result.bias === "UNAVAILABLE"
     );
 
     const biases = results
-      .filter(x => x.result && x.result.bias !== "UNAVAILABLE")
-      .map(x => x.result.bias);
+      .filter(item => item.result)
+      .map(item => item.result.bias);
 
     const aligned =
       biases.length === 4 &&
-      biases.every(x => x === biases[0] && x !== "RANGE");
+      biases.every(bias =>
+        bias === biases[0] && bias !== "RANGE"
+      );
 
-    const hasBreak = results.some(x =>
-      x.result &&
-      ["BULLISH BOS", "BEARISH BOS"].includes(x.result.event)
+    const hasBreak = results.some(item =>
+      item.result &&
+      ["BULLISH BOS", "BEARISH BOS"].includes(item.result.event)
     );
 
     const canReview =
       quote &&
       status[1] !== "red" &&
       status[0] !== "PREVIOUS CLOSE" &&
-      missing.length === 0 &&
+      !missing &&
       aligned &&
       hasBreak;
 
@@ -261,25 +356,68 @@ function renderAnalysis() {
         <strong>${symbol} — ${canReview
           ? "STRUCTURE WATCH — REVIEW ONLY"
           : "NO TRADE"}</strong>
+
         <p>Quote: ${quote ? price(quote.mid) : "Unavailable"}</p>
         <p>Quote quality: ${status[0]}</p>
-        <p>${results.map(x =>
-          x.name + ": " +
-          (x.result
-            ? x.result.bias + " / " + x.result.event
+
+        <p>${results.map(item =>
+          item.name + ": " +
+          (item.result
+            ? item.result.bias + " / " + item.result.event
             : "DATA UNAVAILABLE")
         ).join("<br>")}</p>
+
         <p>${canReview
-          ? "All four timeframe structures align and a break was detected. Manual review required."
+          ? "Four timeframe structures align and a break was detected. Manual review is required."
           : "Evidence is incomplete, stale, unaligned or lacks a confirmed break. Stand aside."}</p>
       </article>`;
   });
 
-  host.innerHTML = analysis.join("");
+  const saved = state.signals.map(signal => {
+    const hasCash =
+      signal.riskCash !== undefined &&
+      signal.potentialReward !== undefined;
+
+    const cashDetails = hasCash
+      ? `<p>Planned risk: ${zar(signal.riskCash)}
+          (${Number(signal.riskPercent).toFixed(1)}% of ${zar(signal.capital)})
+          · Potential reward: ${zar(signal.potentialReward)} before costs</p>`
+      : "<p>Cash assessment unavailable for this older saved setup.</p>";
+
+    return `
+      <article class="list-card">
+        <strong>${esc(signal.symbol)} ${esc(signal.side)}
+          · 1:${Number(signal.rr).toFixed(2)}</strong>
+
+        <p>Entry ${price(signal.entry)}
+          · SL ${price(signal.sl)}
+          · TP1 ${price(signal.tp)}</p>
+
+        ${cashDetails}
+
+        <p>Timeframe assessment:
+          ${esc(signal.alignment || "Not recorded")}</p>
+
+        <p>${esc(signal.timeframe)}
+          · ${esc(signal.reason || "No notes")}</p>
+
+        <small>Manual setup — not a verified feed signal.</small>
+      </article>`;
+  });
+
+  list.innerHTML = [...analysis, ...saved].join("");
+
+  if ($("signalCount")) {
+    $("signalCount").textContent =
+      state.signals.length + " saved setups";
+  }
 }
+
+/* COMPLETE MARKET SCAN */
 
 async function scan() {
   const badge = $("feedBadge");
+
   if (badge) {
     badge.textContent = "SCANNING";
     badge.className = "tag amber";
@@ -289,19 +427,24 @@ async function scan() {
     await discoverSymbols();
 
     for (const symbol of SYMBOLS) {
-      const exact = state.symbols[symbol];
-      if (!exact) continue;
+      const exactSymbol = state.symbols[symbol];
+
+      if (!exactSymbol) {
+        state.quotes[symbol] = null;
+        state.candles[symbol] = {};
+        continue;
+      }
 
       try {
-        state.quotes[symbol] = await getQuote(exact);
-      } catch (_) {
+        state.quotes[symbol] = await getQuote(exactSymbol);
+      } catch (error) {
         state.quotes[symbol] = null;
       }
 
       state.candles[symbol] = {};
 
       const results = await Promise.allSettled(
-        FRAMES.map(f => getCandles(exact, f))
+        FRAMES.map(frame => getCandles(exactSymbol, frame))
       );
 
       results.forEach((result, index) => {
@@ -315,14 +458,29 @@ async function scan() {
     renderSignals();
 
     const now = new Date().toLocaleString("en-ZA");
-    if ($("feedTitle")) $("feedTitle").textContent = "Public reference feed";
+
+    if ($("feedTitle")) {
+      $("feedTitle").textContent = "Public reference feed";
+    }
+
     if ($("feedMessage")) {
       $("feedMessage").textContent =
         "biquote reference data. Not your Space Markets execution feed.";
     }
-    if ($("feedMeta")) $("feedMeta").textContent = "Last scan: " + now;
-    if ($("settingsFeedMeta")) $("settingsFeedMeta").textContent = "Last scan: " + now;
-    if ($("settingsFeedBadge")) $("settingsFeedBadge").textContent = "PUBLIC DATA";
+
+    if ($("feedMeta")) {
+      $("feedMeta").textContent = "Last scan: " + now;
+    }
+
+    if ($("settingsFeedMeta")) {
+      $("settingsFeedMeta").textContent = "Last scan: " + now;
+    }
+
+    if ($("settingsFeedBadge")) {
+      $("settingsFeedBadge").textContent = "PUBLIC DATA";
+      $("settingsFeedBadge").className = "tag green";
+    }
+
     if (badge) {
       badge.textContent = "SCAN COMPLETE";
       badge.className = "tag green";
@@ -332,25 +490,37 @@ async function scan() {
       badge.textContent = "FEED ERROR";
       badge.className = "tag red";
     }
+
     if ($("feedMessage")) {
       $("feedMessage").textContent =
-        "DATA UNAVAILABLE. No trade signals generated. " + error.message;
+        "DATA UNAVAILABLE. No trade signals generated. " +
+        error.message;
     }
+
+    if ($("settingsFeedBadge")) {
+      $("settingsFeedBadge").textContent = "FEED ERROR";
+      $("settingsFeedBadge").className = "tag red";
+    }
+
     toast("Market data unavailable. No trade.");
   }
 }
 
+/* NAVIGATION */
+
 function setupNavigation() {
   document.querySelectorAll("[data-page]").forEach(button => {
     button.addEventListener("click", () => {
-      document.querySelectorAll(".page").forEach(p =>
-        p.classList.remove("active")
-      );
-      document.querySelectorAll(".nav-item").forEach(n =>
-        n.classList.remove("active")
-      );
+      document.querySelectorAll(".page").forEach(page => {
+        page.classList.remove("active");
+      });
+
+      document.querySelectorAll(".nav-item").forEach(item => {
+        item.classList.remove("active");
+      });
 
       const page = $("page-" + button.dataset.page);
+
       if (page) page.classList.add("active");
       button.classList.add("active");
     });
@@ -358,12 +528,16 @@ function setupNavigation() {
 
   document.querySelectorAll("[data-go]").forEach(button => {
     button.addEventListener("click", () => {
-      document.querySelector(
+      const target = document.querySelector(
         '[data-page="' + button.dataset.go + '"]'
-      )?.click();
+      );
+
+      if (target) target.click();
     });
   });
 }
+
+/* RISK CALCULATOR */
 
 function setupRisk() {
   const update = () => {
@@ -371,10 +545,22 @@ function setupRisk() {
     const percent = Number($("riskPct")?.value) || 1;
     const risk = capital * percent / 100;
 
-    if ($("capitalDisplay")) $("capitalDisplay").textContent = zar(capital);
-    if ($("riskCash")) $("riskCash").textContent = zar(risk);
-    if ($("riskSummary")) $("riskSummary").textContent = zar(risk);
-    if ($("riskPctLabel")) $("riskPctLabel").textContent = percent.toFixed(1) + "%";
+    if ($("capitalDisplay")) {
+      $("capitalDisplay").textContent = zar(capital);
+    }
+
+    if ($("riskCash")) {
+      $("riskCash").textContent = zar(risk);
+    }
+
+    if ($("riskSummary")) {
+      $("riskSummary").textContent = zar(risk);
+    }
+
+    if ($("riskPctLabel")) {
+      $("riskPctLabel").textContent = percent.toFixed(1) + "%";
+    }
+
     if ($("riskPctCaption")) {
       $("riskPctCaption").textContent =
         percent.toFixed(1) + "% of " + zar(capital);
@@ -382,19 +568,24 @@ function setupRisk() {
 
     const stop = Number($("stopPoints")?.value) || 0;
     const pointValue = Number($("pointValue")?.value) || 0;
+
     const costs =
       (Number($("spreadCost")?.value) || 0) +
       (Number($("commission")?.value) || 0);
+
     const minLot = Number($("minLot")?.value) || 0;
     const step = Number($("lotStep")?.value) || 0;
 
     if (stop > 0 && pointValue > 0 && step > 0) {
-      const raw = risk / (stop * pointValue + costs);
-      const lot = Math.floor(raw / step) * step;
+      const denominator = stop * pointValue + costs;
+      const rawLot = denominator > 0 ? risk / denominator : 0;
+      const lot = Math.floor((rawLot + 1e-10) / step) * step;
+
       if ($("lotResult")) {
         $("lotResult").textContent =
           lot >= minLot ? lot.toFixed(4) : "NO TRADE";
       }
+
       if ($("lotExplain")) {
         $("lotExplain").textContent =
           lot >= minLot
@@ -402,59 +593,237 @@ function setupRisk() {
             : "Minimum lot may exceed planned risk.";
       }
     } else {
-      if ($("lotResult")) $("lotResult").textContent = "Not calculated";
+      if ($("lotResult")) {
+        $("lotResult").textContent = "Not calculated";
+      }
+
       if ($("lotExplain")) {
         $("lotExplain").textContent =
-          "Enter verified broker point value and costs.";
+          "Enter verified point value and costs.";
       }
     }
 
-    const daily = capital *
-      (Number($("dailyPct")?.value) || 2) / 100;
+    const dailyPercent = Number($("dailyPct")?.value) || 2;
+    const daily = capital * dailyPercent / 100;
 
     if ($("dailyRiskText")) {
-      $("dailyRiskText").textContent = "Daily loss limit: " + zar(daily);
+      $("dailyRiskText").textContent =
+        "Daily loss limit: " + zar(daily);
     }
+
     if ($("dailyLimitSummary")) {
       $("dailyLimitSummary").textContent = zar(daily);
     }
   };
 
   [
-    "capitalInput", "riskPct", "dailyPct", "stopPoints",
-    "pointValue", "spreadCost", "commission", "minLot", "lotStep"
-  ].forEach(id => $(id)?.addEventListener("input", update));
+    "capitalInput",
+    "riskPct",
+    "dailyPct",
+    "stopPoints",
+    "pointValue",
+    "spreadCost",
+    "commission",
+    "minLot",
+    "lotStep"
+  ].forEach(id => {
+    $(id)?.addEventListener("input", update);
+  });
 
   update();
 }
 
+/* TIMEFRAME ASSESSMENT FOR MANUAL SETUPS */
+
+function signalTimeframeAssessment(symbol, side) {
+  const frames = state.candles[symbol] || {};
+
+  const results = FRAMES.map(frame => {
+    const bars = frames[frame.name];
+    const result = bars ? analyse(bars) : null;
+
+    return {
+      name: frame.name,
+      bias: result ? result.bias : "UNAVAILABLE"
+    };
+  });
+
+  const missing = results.filter(item =>
+    item.bias === "UNAVAILABLE"
+  );
+
+  if (missing.length) {
+    return "INCOMPLETE — Missing: " +
+      missing.map(item => item.name).join(", ");
+  }
+
+  const expected = side === "BUY" ? "BULLISH" : "BEARISH";
+  const opposite = side === "BUY" ? "BEARISH" : "BULLISH";
+
+  if (results.every(item => item.bias === expected)) {
+    return "ALIGNED — All four timeframes are " + expected;
+  }
+
+  if (results.some(item => item.bias === opposite)) {
+    return "CONFLICT — One or more timeframes oppose this setup";
+  }
+
+  return "NOT ALIGNED — Range or mixed structure detected";
+}
+
+/* CASH RISK AND REWARD ESTIMATE */
+
+function signalCashAssessment(rr) {
+  const capital = Number($("capitalInput")?.value) || 500;
+  const riskPercent = Number($("riskPct")?.value) || 1;
+  const riskCash = capital * riskPercent / 100;
+
+  return {
+    capital,
+    riskPercent,
+    riskCash,
+    potentialReward: riskCash * rr
+  };
+}
+
+/* SIGNAL BUILDER */
+
+function setupSignals() {
+  const form = $("signalForm");
+  if (!form) return;
+
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+
+    const symbol = $("sigSymbol").value;
+    const side = $("sigSide").value;
+
+    const entry = Number($("sigEntry").value);
+    const sl = Number($("sigSL").value);
+    const tp = Number($("sigTP1").value);
+
+    const validNumbers =
+      Number.isFinite(entry) &&
+      Number.isFinite(sl) &&
+      Number.isFinite(tp) &&
+      entry > 0 &&
+      sl > 0 &&
+      tp > 0;
+
+    const validDirection = side === "BUY"
+      ? sl < entry && tp > entry
+      : sl > entry && tp < entry;
+
+    if (!validNumbers || !validDirection) {
+      toast("Check entry, stop loss and target direction.");
+      return;
+    }
+
+    const riskDistance = Math.abs(entry - sl);
+    const rewardDistance = Math.abs(tp - entry);
+
+    if (riskDistance <= 0) {
+      toast("Entry and stop loss cannot be the same.");
+      return;
+    }
+
+    const rr = rewardDistance / riskDistance;
+    const cash = signalCashAssessment(rr);
+    const alignment = signalTimeframeAssessment(symbol, side);
+
+    const record = {
+      symbol,
+      side,
+      entry,
+      sl,
+      tp,
+      timeframe: $("sigTF").value,
+      reason: $("sigReason").value,
+      rr,
+      capital: cash.capital,
+      riskPercent: cash.riskPercent,
+      riskCash: cash.riskCash,
+      potentialReward: cash.potentialReward,
+      alignment,
+      date: new Date().toISOString()
+    };
+
+    state.signals.unshift(record);
+    save();
+
+    if ($("signalResult")) {
+      $("signalResult").classList.remove("hidden");
+
+      $("signalResult").textContent =
+        "Setup saved · RR 1:" + rr.toFixed(2) +
+        " · Planned risk " + zar(cash.riskCash) +
+        " (" + cash.riskPercent.toFixed(1) + "% of " +
+        zar(cash.capital) + ")" +
+        " · Potential reward " + zar(cash.potentialReward) +
+        " before costs · " + alignment +
+        ". Manual idea only — not a generated trading signal.";
+    }
+
+    renderSignals();
+    form.reset();
+
+    toast("Setup saved.");
+  });
+
+  renderSignals();
+}
+
+/* TRADE JOURNAL */
+
 function setupJournal() {
   const form = $("tradeForm");
 
-  if (form) form.addEventListener("submit", event => {
-    event.preventDefault();
+  if (form) {
+    form.addEventListener("submit", event => {
+      event.preventDefault();
 
-    state.trades.unshift({
-      symbol: $("tradeSymbol").value,
-      side: $("tradeSide").value,
-      entry: Number($("tradeEntry").value),
-      exit: Number($("tradeExit").value),
-      pl: Number($("tradePL").value),
-      date: $("tradeDate").value,
-      notes: $("tradeNotes").value
+      const entry = Number($("tradeEntry").value);
+      const exit = Number($("tradeExit").value);
+      const pl = Number($("tradePL").value);
+
+      if (
+        !Number.isFinite(entry) ||
+        !Number.isFinite(exit) ||
+        !Number.isFinite(pl)
+      ) {
+        toast("Enter valid trade numbers.");
+        return;
+      }
+
+      state.trades.unshift({
+        symbol: $("tradeSymbol").value,
+        side: $("tradeSide").value,
+        entry,
+        exit,
+        pl,
+        date: $("tradeDate").value,
+        notes: $("tradeNotes").value
+      });
+
+      save();
+      renderJournal();
+      form.reset();
+
+      toast("Trade saved on this device.");
     });
-
-    save();
-    renderJournal();
-    form.reset();
-    toast("Trade saved on this device.");
-  });
+  }
 
   $("csvBtn")?.addEventListener("click", () => {
     const rows = [
       ["symbol", "side", "entry", "exit", "net_pl_zar", "date", "notes"],
-      ...state.trades.map(t => [
-        t.symbol, t.side, t.entry, t.exit, t.pl, t.date, t.notes
+      ...state.trades.map(trade => [
+        trade.symbol,
+        trade.side,
+        trade.entry,
+        trade.exit,
+        trade.pl,
+        trade.date,
+        trade.notes
       ])
     ];
 
@@ -465,11 +834,14 @@ function setupJournal() {
     ).join("\n");
 
     const link = document.createElement("a");
+
     link.href = URL.createObjectURL(
       new Blob([csv], { type: "text/csv" })
     );
+
     link.download = "space-trader-journal.csv";
     link.click();
+
     URL.revokeObjectURL(link.href);
   });
 
@@ -478,30 +850,57 @@ function setupJournal() {
 
 function renderJournal() {
   const list = $("tradeList");
+
   if (list) {
     list.innerHTML = state.trades.length
-      ? state.trades.slice(0, 30).map(t => `
-        <article class="list-card">
-          <strong>${esc(t.symbol)} ${esc(t.side)} · ${zar(t.pl)}</strong>
-          <p>${esc(t.date)} · Entry ${price(t.entry)} · Exit ${price(t.exit)}</p>
-          <p>${esc(t.notes || "")}</p>
-        </article>`).join("")
+      ? state.trades.slice(0, 30).map(trade => `
+          <article class="list-card">
+            <strong>
+              ${esc(trade.symbol)} ${esc(trade.side)} · ${zar(trade.pl)}
+            </strong>
+            <p>
+              ${esc(trade.date)}
+              · Entry ${price(trade.entry)}
+              · Exit ${price(trade.exit)}
+            </p>
+            <p>${esc(trade.notes || "")}</p>
+          </article>
+        `).join("")
       : '<div class="empty-state">No trades recorded yet.</div>';
   }
 
-  const wins = state.trades.filter(t => t.pl > 0);
-  const losses = state.trades.filter(t => t.pl < 0);
-  const net = state.trades.reduce((sum, t) => sum + Number(t.pl || 0), 0);
-  const grossWins = wins.reduce((sum, t) => sum + t.pl, 0);
-  const grossLosses = -losses.reduce((sum, t) => sum + t.pl, 0);
+  const wins = state.trades.filter(trade => Number(trade.pl) > 0);
+  const losses = state.trades.filter(trade => Number(trade.pl) < 0);
 
-  if ($("jCount")) $("jCount").textContent = state.trades.length;
-  if ($("jNet")) $("jNet").textContent = zar(net);
+  const net = state.trades.reduce(
+    (sum, trade) => sum + Number(trade.pl || 0),
+    0
+  );
+
+  const grossWins = wins.reduce(
+    (sum, trade) => sum + Number(trade.pl),
+    0
+  );
+
+  const grossLosses = -losses.reduce(
+    (sum, trade) => sum + Number(trade.pl),
+    0
+  );
+
+  if ($("jCount")) {
+    $("jCount").textContent = state.trades.length;
+  }
+
+  if ($("jNet")) {
+    $("jNet").textContent = zar(net);
+  }
+
   if ($("jWin")) {
     $("jWin").textContent = state.trades.length
       ? (wins.length / state.trades.length * 100).toFixed(1) + "%"
       : "0%";
   }
+
   if ($("jPF")) {
     $("jPF").textContent = grossLosses
       ? (grossWins / grossLosses).toFixed(2)
@@ -509,94 +908,29 @@ function renderJournal() {
   }
 }
 
-function setupSignals() {
-  const form = $("signalForm");
-  if (!form) return;
+/* SETTINGS AND BACKUP */
 
-  form.addEventListener("submit", event => {
-    event.preventDefault();
+function createBackup() {
+  const backup = {
+    trades: state.trades,
+    signals: state.signals,
+    settings: state.settings,
+    manualQuotes: state.manualQuotes
+  };
 
-    const entry = Number($("sigEntry").value);
-    const sl = Number($("sigSL").value);
-    const tp = Number($("sigTP1").value);
-    const side = $("sigSide").value;
+  const blob = new Blob(
+    [JSON.stringify(backup, null, 2)],
+    { type: "application/json" }
+  );
 
-    const valid = side === "BUY"
-      ? sl < entry && tp > entry
-      : sl > entry && tp < entry;
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
 
-    if (!valid) {
-      toast("Check entry, stop loss and target direction.");
-      return;
-    }
+  link.href = url;
+  link.download = "space-trader-backup.json";
+  link.click();
 
-    const risk = Math.abs(entry - sl);
-    const reward = Math.abs(tp - entry);
-    const record = {
-      symbol: $("sigSymbol").value,
-      side,
-      entry,
-      sl,
-      tp,
-      timeframe: $("sigTF").value,
-      reason: $("sigReason").value,
-      rr: reward / risk,
-      date: new Date().toISOString()
-    };
-
-    state.signals.unshift(record);
-    save();
-
-    if ($("signalResult")) {
-      $("signalResult").classList.remove("hidden");
-      $("signalResult").textContent =
-        "Setup saved · Risk/reward: 1:" + record.rr.toFixed(2) +
-        ". Manual idea only — not a generated trading signal.";
-    }
-
-    renderSignals();
-    form.reset();
-    toast("Setup saved.");
-  });
-
-  renderSignals();
-}
-
-function renderSignals() {
-  const list = $("signalList");
-  if (!list) return;
-
-  const saved = state.signals;
-  const manual = saved.map(s => `
-    <article class="list-card">
-      <strong>${esc(s.symbol)} ${esc(s.side)} · 1:${Number(s.rr).toFixed(2)}</strong>
-      <p>Entry ${price(s.entry)} · SL ${price(s.sl)} · TP1 ${price(s.tp)}</p>
-      <p>${esc(s.timeframe)} · ${esc(s.reason || "No notes")}</p>
-      <small>Manual setup — not a verified feed signal.</small>
-    </article>`);
-
-  const analysis = SYMBOLS.map(symbol => {
-    const q = state.quotes[symbol];
-    const status = quality(q);
-    const frames = state.candles[symbol] || {};
-    const result = FRAMES.map(f => {
-      const a = frames[f.name] ? analyse(frames[f.name]) : null;
-      return f.name + ": " + (a ? a.bias + " / " + a.event : "UNAVAILABLE");
-    });
-
-    return `
-      <article class="list-card">
-        <strong>${symbol} — MARKET SCAN</strong>
-        <p>${q ? price(q.mid) : "No quote"} · ${status[0]}</p>
-        <p>${result.join("<br>")}</p>
-        <small>Analysis is informational. Verify manually before any trade.</small>
-      </article>`;
-  });
-
-  list.innerHTML = [...analysis, ...manual].join("");
-  if ($("signalCount")) {
-    $("signalCount").textContent = saved.length + " saved setups";
-  }
+  URL.revokeObjectURL(url);
 }
 
 function setupSettings() {
@@ -606,59 +940,80 @@ function setupSettings() {
       serverName: $("serverName").value,
       symbolMap: $("symbolMap").value
     };
+
     save();
     toast("Settings saved on this device.");
   });
 
-  $("backupBtn")?.addEventListener("click", () => {
-    const blob = new Blob([
-      JSON.stringify({
-        trades: state.trades,
-        signals: state.signals,
-        settings: state.settings
-      }, null, 2)
-    ], { type: "application/json" });
+  $("backupBtn")?.addEventListener("click", createBackup);
 
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = "space-trader-backup.json";
-    link.click();
-    URL.revokeObjectURL(link.href);
+  $("clearData")?.addEventListener("click", () => {
+    $("confirmDialog")?.showModal();
   });
-
-  $("clearData")?.addEventListener("click", () =>
-    $("confirmDialog")?.showModal()
-  );
 
   $("confirmClear")?.addEventListener("click", () => {
     localStorage.removeItem(STORE);
+
     state.trades = [];
     state.signals = [];
     state.settings = {};
+    state.manualQuotes = {};
+
     renderJournal();
     renderSignals();
+    renderMarkets();
+
     toast("Local app data cleared.");
   });
 }
 
+/* MANUAL QUOTE RECORD */
+
 function setupManualQuote() {
   $("editQuoteBtn")?.addEventListener("click", () => {
+    const selected = $("quoteSymbol")?.value || "XAUUSD";
+
+    $("qSymbol").value = selected;
+
     const now = new Date();
     $("qTime").value = new Date(
       now.getTime() - now.getTimezoneOffset() * 60000
     ).toISOString().slice(0, 16);
+
     $("quoteDialog")?.showModal();
   });
 
   $("quoteForm")?.addEventListener("submit", event => {
     event.preventDefault();
-    toast("Manual quote is not used by the public scanner.");
+
+    const symbol = $("qSymbol").value;
+    const value = Number($("qPrice").value);
+
+    if (!Number.isFinite(value) || value <= 0) {
+      toast("Enter a valid quote price.");
+      return;
+    }
+
+    state.manualQuotes[symbol] = {
+      price: value,
+      source: $("qSource").value,
+      status: $("qStatus").value,
+      time: $("qTime").value
+    };
+
+    save();
+    renderMarkets();
+
     $("quoteDialog")?.close();
+    toast("Manual quote record saved.");
   });
 }
 
+/* APP START */
+
 function boot() {
   loadSaved();
+
   setupNavigation();
   setupRisk();
   setupJournal();
@@ -666,12 +1021,26 @@ function boot() {
   setupSettings();
   setupManualQuote();
 
+  if ($("todayLabel")) {
+    $("todayLabel").textContent =
+      new Date().toLocaleDateString("en-ZA", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric"
+      }).toUpperCase();
+  }
+
   $("feedReconnect")?.addEventListener("click", scan);
   $("settingsReconnect")?.addEventListener("click", scan);
 
+  renderJournal();
+  renderSignals();
+  renderMarkets();
+
   scan();
 
-  // Refresh hourly only while the app is open.
+  // Refresh hourly while the app is open.
   setInterval(() => {
     if (!document.hidden) scan();
   }, 60 * 60 * 1000);
